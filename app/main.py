@@ -1,8 +1,8 @@
 """
 Devkit - small, stateless developer utilities behind one API.
 
-Also used as the reference workload for a multi-region EKS / GitOps /
-observability setup, which is why it ships metrics, traces and probes.
+Used as the reference workload for this single-VM reliability platform,
+which is why it ships metrics, traces, probes, and fault-injection hooks.
 
 Configuration (all optional, via environment):
   APP_VERSION                  version string reported by /status
@@ -49,6 +49,7 @@ def _flag(name: str) -> bool:
 
 VERSION = os.getenv("APP_VERSION", "dev")
 MAX_TEXT = int(os.getenv("MAX_TEXT", "10000"))
+MAX_TOKEN_LENGTH = 128
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "60"))
 TRUSTED_PROXY_HOPS = int(os.getenv("TRUSTED_PROXY_HOPS", "0"))
 OTLP_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
@@ -57,6 +58,7 @@ UPSTREAM_REQUIRED = _flag("UPSTREAM_REQUIRED")
 CHAOS_ENABLED = _flag("CHAOS_ENABLED")
 
 HASH_ALGOS = {"md5", "sha1", "sha256", "sha512"}
+BAD_REQUEST_RESPONSE = {400: {"description": "Invalid request parameters"}}
 OPS_PATHS = {
     "/metrics",
     "/healthz",
@@ -405,14 +407,14 @@ def client_ip(request: Request):
     return {"ip": get_client_ip(request)}
 
 
-@app.get("/api/hash")
+@app.get("/api/hash", responses=BAD_REQUEST_RESPONSE)
 def hash_text(text: str = Query(..., max_length=MAX_TEXT), algo: str = "sha256"):
     if algo not in HASH_ALGOS:
         raise HTTPException(400, f"algo must be one of {sorted(HASH_ALGOS)}")
     return {"algo": algo, "hash": hashlib.new(algo, text.encode()).hexdigest()}
 
 
-@app.get("/api/base64")
+@app.get("/api/base64", responses=BAD_REQUEST_RESPONSE)
 def base64_text(text: str = Query(..., max_length=MAX_TEXT), mode: str = "encode"):
     if mode == "encode":
         return {"result": base64.b64encode(text.encode()).decode()}
@@ -424,7 +426,7 @@ def base64_text(text: str = Query(..., max_length=MAX_TEXT), mode: str = "encode
     raise HTTPException(400, "mode must be 'encode' or 'decode'")
 
 
-@app.get("/api/url")
+@app.get("/api/url", responses=BAD_REQUEST_RESPONSE)
 def url_text(text: str = Query(..., max_length=MAX_TEXT), mode: str = "encode"):
     if mode == "encode":
         return {"result": quote(text, safe="")}
@@ -433,7 +435,7 @@ def url_text(text: str = Query(..., max_length=MAX_TEXT), mode: str = "encode"):
     raise HTTPException(400, "mode must be 'encode' or 'decode'")
 
 
-@app.post("/api/json")
+@app.post("/api/json", responses=BAD_REQUEST_RESPONSE)
 def json_format(body: JsonIn):
     try:
         parsed = json.loads(body.text)
@@ -448,14 +450,14 @@ def _b64url_json(segment: str) -> dict:
     padded = segment + "=" * (-len(segment) % 4)
     try:
         value = json.loads(base64.urlsafe_b64decode(padded))
-    except (binascii.Error, ValueError, UnicodeDecodeError):
+    except (binascii.Error, ValueError):
         raise HTTPException(400, "token segment is not valid base64url JSON") from None
     if not isinstance(value, dict):
         raise HTTPException(400, "token segment is not a JSON object")
     return value
 
 
-@app.post("/api/jwt/decode")
+@app.post("/api/jwt/decode", responses=BAD_REQUEST_RESPONSE)
 def jwt_decode(body: JwtIn):
     """Decode only. The signature is NOT verified; never trust these claims."""
     parts = body.token.strip().split(".")
@@ -473,15 +475,21 @@ def jwt_decode(body: JwtIn):
     return result
 
 
-@app.get("/api/token")
-def new_token(kind: str = "urlsafe", length: int = Query(32, ge=8, le=128)):
+@app.get("/api/token", responses=BAD_REQUEST_RESPONSE)
+def new_token(
+    kind: str = "urlsafe",
+    length: int = Query(32, ge=8, le=MAX_TOKEN_LENGTH),
+):
     if kind == "urlsafe":
         return {"token": secrets.token_urlsafe(length)[:length]}
     if kind == "hex":
         return {"token": secrets.token_hex(length)[:length]}
     if kind == "password":
         alphabet = string.ascii_letters + string.digits + "!@#$%^&*-_"
-        return {"token": "".join(secrets.choice(alphabet) for _ in range(length))}
+        candidate = "".join(
+            secrets.choice(alphabet) for _ in range(MAX_TOKEN_LENGTH)
+        )
+        return {"token": candidate[:length]}
     raise HTTPException(400, "kind must be one of ['hex', 'password', 'urlsafe']")
 
 
@@ -490,7 +498,10 @@ def new_token(kind: str = "urlsafe", length: int = Query(32, ge=8, le=128)):
 # --------------------------------------------------------------------------
 if UPSTREAM_URL:
 
-    @app.get("/greet")
+    @app.get(
+        "/greet",
+        responses={502: {"description": "Downstream service unavailable"}},
+    )
     def greet():
         try:
             r = httpx.get(f"{UPSTREAM_URL}/greet", timeout=5.0)
@@ -524,4 +535,8 @@ if CHAOS_ENABLED:
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
+    uvicorn.run(
+        app,
+        host=os.getenv("BIND_HOST", "127.0.0.1"),
+        port=int(os.getenv("PORT", "8000")),
+    )

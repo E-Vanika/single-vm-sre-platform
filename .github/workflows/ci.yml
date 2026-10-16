@@ -73,8 +73,10 @@ jobs:
       - name: Trivy filesystem report
         uses: aquasecurity/trivy-action@v0.36.0
         with:
+          version: v0.76.0
           scan-type: fs
           scan-ref: app
+          scanners: vuln
           format: sarif
           output: trivy-fs.sarif
           severity: HIGH,CRITICAL
@@ -88,8 +90,10 @@ jobs:
       - name: Enforce filesystem vulnerability gate
         uses: aquasecurity/trivy-action@v0.36.0
         with:
+          version: v0.76.0
           scan-type: fs
           scan-ref: app
+          scanners: vuln
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
@@ -128,7 +132,9 @@ jobs:
       - name: Trivy application image report
         uses: aquasecurity/trivy-action@v0.36.0
         with:
+          version: v0.76.0
           image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          scanners: vuln
           format: sarif
           output: trivy-image.sarif
           severity: HIGH,CRITICAL
@@ -142,7 +148,9 @@ jobs:
       - name: Enforce application image vulnerability gate
         uses: aquasecurity/trivy-action@v0.36.0
         with:
+          version: v0.76.0
           image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          scanners: vuln
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
@@ -151,7 +159,9 @@ jobs:
       - name: Enforce greeting image vulnerability gate
         uses: aquasecurity/trivy-action@v0.36.0
         with:
+          version: v0.76.0
           image-ref: ${{ env.IMAGE_NAME }}-greeting:${{ github.sha }}
+          scanners: vuln
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true

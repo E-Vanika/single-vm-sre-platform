@@ -3,7 +3,7 @@ Tiny second service - exists specifically to give the main app
 something real to call, so distributed tracing has an actual chain
 to trace instead of a single hop.
 """
-import random
+import secrets
 
 from fastapi import FastAPI
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -21,7 +21,7 @@ GREETINGS = [
 
 @app.get("/greet")
 def greet():
-    return {"greeting": random.choice(GREETINGS)}
+    return {"greeting": secrets.choice(GREETINGS)}
 
 
 @app.get("/healthz")
