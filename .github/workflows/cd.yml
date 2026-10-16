@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-prod
+  group: deploy-production-like
   cancel-in-progress: false
 
 env:
@@ -20,6 +20,19 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.NEW_TAG }}
+
+      - name: Copy versioned runtime configuration
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ubuntu
+          key: ${{ secrets.VM_SSH_KEY }}
+          source: "docker-compose.yml,caddy/Caddyfile,vmagent/scrape.yml,scripts/rollback.sh,scripts/chaos-test.sh"
+          target: /opt/solo-sre
+
       - name: Deploy new image to VM
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -29,7 +42,7 @@ jobs:
           envs: NEW_TAG
           script: |
             set -e
-            cd /opt/sre-portfolio
+            cd /opt/solo-sre
 
             CURRENT=$(grep '^IMAGE_TAG=' .env 2>/dev/null | cut -d= -f2 || true)
             CURRENT=${CURRENT:-latest}
@@ -42,13 +55,13 @@ jobs:
                 echo "IMAGE_TAG=$1" >> .env
               fi
             }
-            roll() {
+            deploy_tag() {
               docker compose pull app app-2 greeting-service
               docker compose up -d --no-deps app app-2 greeting-service
             }
 
             set_tag "$NEW_TAG"
-            roll
+            deploy_tag
 
             HEALTHY=false
             for i in $(seq 1 10); do
@@ -61,31 +74,24 @@ jobs:
             done
 
             if [ "$HEALTHY" != "true" ]; then
-              echo "Not ready after retries, rolling back to $CURRENT"
+              echo "Not ready after retries; rolling back to $CURRENT"
               set_tag "$CURRENT"
-              roll
+              deploy_tag
               exit 1
             fi
-            echo "Deploy of $NEW_TAG succeeded"
+            echo "Deploy of $NEW_TAG passed the internal readiness gate"
 
-  # smoke-test:
-  #   needs: deploy
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Verify the live public endpoint post-deploy
-  #       run: |
-  #         set -e
-  #         echo "Readiness..."
-  #         curl -fsS --retry 3 --retry-delay 2 "$BASE_URL/readyz"
-
-  #         echo "Landing page renders..."
-  #         curl -fsS "$BASE_URL/" | grep -q "Devkit"
-
-  #         echo "Tool endpoint works..."
-  #         curl -fsS "$BASE_URL/api/hash?text=smoke&algo=sha256" | grep -q '"hash"'
-
-  #         echo "Serving the version we just deployed..."
-  #         LIVE=$(curl -fsS "$BASE_URL/status" | jq -r .version)
-  #         [ "$LIVE" = "$NEW_TAG" ] || { echo "live=$LIVE expected=$NEW_TAG"; exit 1; }
-
-  #         echo "All smoke checks passed."
+  smoke-test:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify the public deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 3 --retry-delay 2 "$BASE_URL/readyz"
+          curl -fsS "$BASE_URL/" | grep -q "Devkit"
+          curl -fsS "$BASE_URL/api/hash?text=smoke&algo=sha256" | grep -q '"hash"'
+          LIVE=$(curl -fsS "$BASE_URL/status" | jq -r .version)
+          [ "$LIVE" = "$NEW_TAG" ] || { echo "live=$LIVE expected=$NEW_TAG"; exit 1; }
+          echo "External smoke test verified $NEW_TAG"

@@ -33,17 +33,17 @@ Implemented tail latency monitoring using 95th percentile analysis to accurately
 ![P95 Latency](image-3.png)
 
 ### CPU Utilization (USE Metric)
-Monitor host CPU consumption across containerized workloads to detect resource saturation and prevent performance throttling. Validates efficient capacity planning and workload optimization under the 1-vCPU constraint, proving ability to run production-grade services on minimal infrastructure.
+Monitor host CPU consumption across containerized workloads to detect resource saturation and prevent performance throttling. This validates capacity planning and workload optimization under the 1-vCPU constraint without claiming host-level high availability.
 
 ![CPU Utilization](image-4.png)
 
 ### Memory and Swap Utilization (USE Metric)
-Critical RAM pressure monitoring on the memory-constrained 1GB instance for detecting memory leaks, OOM (Out-of-Memory) conditions, and swap thrashing. Demonstrates advanced resource management and container orchestration capabilities, proving the system reliably runs production workloads on minimal resources while maintaining stability and performance.
+Memory-pressure monitoring on the constrained 1GB instance detects leaks, OOM conditions, and swap thrashing. It shows the resource tradeoffs involved in operating several bounded containers on minimal infrastructure.
 
 ![Memory and Swap Utilization](image-5.png)
 
 ### Container Restart Monitoring
-Developed intelligent pod/container restart tracking to measure system stability. Container churn serves as a leading indicator of instability, resource starvation, or application crashes. Enables proactive incident detection and helps maintain SLA compliance through early warning signals.
+Developed container restart tracking to measure system stability. Container churn serves as a leading indicator of instability, resource starvation, or application crashes and provides an early warning signal for SLO risk.
 
 ![Container Restarts](image-6.png)
 
@@ -57,7 +57,7 @@ Comprehensive disk consumption and I/O pattern analysis to identify storage satu
 Conducted comprehensive chaos engineering tests to validate system resilience and automatic recovery capabilities in production-like scenarios.
 
 ### Application Failure & Recovery
-Simulated critical application failure by terminating the service pod. The system successfully detected the failure and automatically restored service.
+Simulated application-process failure by terminating a container. Docker's restart policy restored the process while the second application container remained available behind Caddy.
 
 ![Application terminated](image-8.png)
 
@@ -66,9 +66,9 @@ Successfully brought the application back online automatically through container
 ![Service recovered](image-9.png)
 
 ### Out-of-Memory (OOM) Resilience
-Demonstrated automatic pod recovery under memory pressure conditions. When OOM conditions were triggered, Kubernetes automatically terminated and restarted the affected pod to restore service availability.
+Demonstrated automatic container recovery under memory pressure. When the memory limit was exceeded, Docker terminated and restarted the affected container.
 
-![OOM pod recovery](image-10.png)
+![OOM container recovery](image-10.png)
 
 ### Observability During Chaos
 Grafana dashboards provided real-time visibility throughout the entire chaos engineering test, capturing all system behaviors during failure and recovery scenarios.
@@ -82,10 +82,10 @@ Leveraged distributed tracing infrastructure using OpenTelemetry and Grafana Tem
 
 ## Microservices Architecture & Horizontal Scaling
 
-Architected a scalable microservices infrastructure by decomposing the monolithic application into specialized services with independent deployment and scaling capabilities.
+Added a small downstream service and a second application process to exercise service dependencies, trace propagation, and process-level load balancing on one host.
 
 ### Service Composition
-Introduced distributed tracing across all services, added the greeting service as a specialized microservice, and deployed app-2 as a horizontally scalable compute service to handle increased load and improve system throughput.
+Introduced distributed tracing across the application and greeting service, and deployed `app-2` to demonstrate horizontal process scaling within the explicit limits of one VM.
 
 ![list of services status](image-13.png)
 
@@ -95,6 +95,6 @@ Successfully deployed and validated the greeting service microservice. Logs demo
 ![Greeting service startup logs](image-15.png)
 
 ### User-Facing Application
-Production-ready user interface with seamless integration across all backend services and microservices components.
+User-facing interface for exercising the instrumented API and downstream service path.
 
 ![Application homepage](image-11.png)

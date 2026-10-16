@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Simple chaos scenarios for the demo. Run each one, observe recovery,
-# then fill in docs/runbook.md / a postmortem from what you saw.
+# Controlled failure scenarios. Run one at a time, observe recovery,
+# and record the evidence in a postmortem.
 set -euo pipefail
 
 scenario="${1:-}"
@@ -23,7 +23,7 @@ case "$scenario" in
     rm -f /tmp/chaos-fill
     ;;
   oom)
-    echo "Forcing app container to exceed its 150m mem_limit..."
+    echo "Forcing app container to exceed its 120m memory limit..."
     docker exec app python -c "x = bytearray(300*1024*1024)" || echo "Container OOM-killed as expected, check: docker ps -a"
     ;;
   *)

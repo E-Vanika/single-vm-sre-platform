@@ -1,42 +1,91 @@
-# SLIs / SLOs / error budget
+# Service level objectives and error-budget policy
+
+| Field | Value |
+|---|---|
+| Service | Single-VM SRE Platform |
+| Window | Rolling 30 days |
+| Review cadence | Monthly |
+
+**Architecture constraint:** one VM in one availability zone
 
 ## Service level indicators
+
+Only user-facing routes participate in the SLO. `/healthz`, `/readyz`, `/metrics`, `/status`, `/docs`, and `/_chaos/*` are excluded so probes and deliberate fault injection do not distort user experience.
+
 | SLI | Definition |
 |---|---|
-| Availability | % of requests to `/` and `/health` returning non-5xx |
-| Latency | p95 request duration for `/` and `/slow`, from `http_request_duration_seconds` |
-| Error rate | % of `/error` requests returning 5xx (this endpoint fails ~30% on purpose - it's the demo's error-budget generator) |
+| Availability | Non-5xx requests divided by all requests to user-facing routes |
+| Latency | Requests to user-facing routes completed in less than 500 ms divided by all such requests |
 
-## SLOs (30-day rolling window)
-- **Availability:** 99.0% (deliberately looser than a real prod SLO - single VM, single AZ, no redundancy, and that constraint should be stated explicitly rather than hidden)
-- **Latency:** p95 < 500ms on `/`
-- **Error budget:** 1% of requests may fail before the budget is exhausted
+HTTP 429 responses are counted as available but unsuccessful capacity signals: the application responded correctly, but demand exceeded its configured rate policy. They are monitored separately.
 
-## Burn-rate alerting
-Configure two alert rules in Grafana Cloud (free tier includes alerting):
-- **Fast burn:** > 14.4x burn rate over 1h -> page immediately (would exhaust a 30-day budget in ~2 days)
-- **Slow burn:** > 3x burn rate over 6h -> ticket, not page
+## Objectives
 
-Route both to a free webhook (Discord or Telegram bot) - no PagerDuty needed to demonstrate the concept.
+| Objective | Target | Rationale |
+|---|---:|---|
+| Availability | 99.0% over 30 days | A single VM and availability zone cannot honestly support a high-availability target |
+| Latency | 95% under 500 ms over 30 days | Captures user-visible tail latency while allowing brief contention on burstable compute |
 
-## RED method (per service - the app)
-Already instrumented in `app/main.py` via `Counter`/`Histogram`. Build these as Grafana panels:
-- **Rate:** `sum(rate(http_requests_total[5m])) by (path)`
-- **Errors:** `sum(rate(http_requests_total{status="500"}[5m])) by (path)`
-- **Duration (p50/p95):** `histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, path))` (swap `0.95` for `0.5` for p50)
+At 99.0% availability, the service may consume 1% of eligible requests as errors during the window. The budget is request-based rather than time-based.
 
-## USE method (per resource - the host)
-Data already flows from `node-exporter` via `vmagent`; not yet turned into panels. One row per resource:
-| Resource | Utilization | Saturation | Errors |
-|---|---|---|---|
-| CPU | `1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))` | `node_load1 / count(node_cpu_seconds_total{mode="idle"})` | n/a |
-| Memory | `1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)` | swap usage (`node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes`) | OOM kill count (from `docker events` or container restart count) |
-| Disk | `1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)` | disk I/O queue depth | filesystem errors (rare on a single VM, but check `node_filesystem_readonly`) |
+## PromQL
 
-On an e2.micro, CPU saturation and memory/swap are the two that will actually bite you first - that's the pair worth alerting on.
+Availability over 30 days:
 
-## Why these numbers
-99.0% instead of 99.9%+ because a single e2.micro with no redundancy
-genuinely cannot promise more than that - claiming a tighter SLO here
-would be dishonest. That reasoning is more valuable to show than a
-copy-pasted "five nines" target.
+```promql
+1 - (
+  sum(increase(http_requests_total{status=~"5..",path!~"/(healthz|readyz|metrics|status|docs|_chaos.*)"}[30d]))
+  /
+  sum(increase(http_requests_total{path!~"/(healthz|readyz|metrics|status|docs|_chaos.*)"}[30d]))
+)
+```
+
+P95 latency by route:
+
+```promql
+histogram_quantile(
+  0.95,
+  sum by (le, path) (rate(http_request_duration_seconds_bucket[5m]))
+)
+```
+
+Availability error-budget burn rate:
+
+```promql
+(
+  sum(rate(http_requests_total{status=~"5..",path!~"/(healthz|readyz|metrics|status|docs|_chaos.*)"}[1h]))
+  /
+  sum(rate(http_requests_total{path!~"/(healthz|readyz|metrics|status|docs|_chaos.*)"}[1h]))
+) / 0.01
+```
+
+## Alert policy
+
+Use paired short and long windows to avoid paging on a momentary spike:
+
+| Severity | Condition | Response |
+|---|---|---|
+| Page | Burn rate above 14.4x over both 5 minutes and 1 hour | Acknowledge, assess user impact, and follow the error-rate runbook |
+| Follow-up | Burn rate above 3x over both 30 minutes and 6 hours | Open a reliability action and investigate during working hours |
+
+Host CPU, memory, swap, and disk alerts are diagnostic signals, not service-level objectives. Pages should be tied to user-visible symptoms whenever possible.
+
+## Error-budget policy
+
+When the 30-day availability budget is exhausted:
+
+1. Pause non-reliability changes to the service.
+2. Prioritize the failure mode that consumed the most budget.
+3. Complete a blameless postmortem for any material incident.
+4. Implement and verify corrective actions before resuming feature changes.
+5. Resume normal delivery only when the service is back within objective or an explicit risk decision is documented.
+
+The owner of this repository is the approver and incident commander for this single-operator platform. In a team environment, service owners and product stakeholders would jointly approve the target and policy.
+
+## Supporting resource signals
+
+| Resource | Utilization | Saturation or risk signal |
+|---|---|---|
+| CPU | `1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))` | `node_load1 / count(node_cpu_seconds_total{mode="idle"})` |
+| Memory | `1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)` | Swap use and container OOM/restart events |
+| Disk | `1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)` | I/O queue depth and read-only filesystem state |

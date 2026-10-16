@@ -13,7 +13,7 @@ FastAPIInstrumentor.instrument_app(app)
 
 GREETINGS = [
     "Hey there!",
-    "Welcome to Solo-SRE.",
+    "Welcome to the Single-VM SRE Platform.",
     "All systems observed.",
     "Running lean on 1GB of RAM.",
 ]
@@ -24,6 +24,6 @@ def greet():
     return {"greeting": random.choice(GREETINGS)}
 
 
-@app.get("/health")
+@app.get("/healthz")
 def health():
     return {"status": "healthy"}

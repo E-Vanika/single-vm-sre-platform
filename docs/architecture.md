@@ -121,10 +121,10 @@ real domain at the VM.
 
 ### Do you need to keep `your-domain.example.com`?
 No — replace it with a domain that actually resolves to your VM's
-public IP. Two free options if you don't want to buy one for a demo
+public IP. Two free options if you do not want to buy one for this platform
 project:
 - **DuckDNS** (duckdns.org) — free subdomain like
-  `solo-sre-demo.duckdns.org`, points at your VM's IP, works fine with
+  `single-vm-sre.duckdns.org`, points at your VM's IP, works fine with
   Let's Encrypt.
 - **nip.io** — wildcard DNS that resolves `<any-ip>.nip.io` straight
   to that IP with zero signup, useful for quick testing (Let's Encrypt

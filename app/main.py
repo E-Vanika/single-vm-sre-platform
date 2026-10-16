@@ -27,7 +27,7 @@ import string
 import time
 import uuid
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import quote, unquote
 
 import httpx
@@ -57,7 +57,16 @@ UPSTREAM_REQUIRED = _flag("UPSTREAM_REQUIRED")
 CHAOS_ENABLED = _flag("CHAOS_ENABLED")
 
 HASH_ALGOS = {"md5", "sha1", "sha256", "sha512"}
-OPS_PATHS = {"/metrics", "/healthz", "/readyz"}
+OPS_PATHS = {
+    "/metrics",
+    "/healthz",
+    "/readyz",
+    "/status",
+    "/docs",
+    "/docs/oauth2-redirect",
+    "/openapi.json",
+    "/redoc",
+}
 START_TIME = time.time()
 
 
@@ -131,7 +140,7 @@ def get_client_ip(request: Request) -> str:
 
 
 class SlidingWindowLimiter:
-    """In-memory per-key limiter. Per replica: with N pods the effective
+    """In-memory per-key limiter. Per replica: with N processes the effective
     limit is N x limit. Use a shared store (Redis) or the ingress if you need
     a global limit."""
 
@@ -243,7 +252,7 @@ LANDING_PAGE = r"""<!DOCTYPE html>
   <footer>
     <a href="/status">Status</a> &middot;
     <a href="/docs">API docs</a> &middot;
-    <a href="https://github.com/E-Vanika/cloud-playground">Source</a>
+    <a href="https://github.com/E-Vanika/single-vm-sre-platform">Source</a>
   </footer>
 </main>
 <script>
@@ -387,7 +396,7 @@ def now():
     ts = time.time()
     return {
         "unix": int(ts),
-        "iso": datetime.fromtimestamp(ts, tz=timezone.utc).isoformat(),
+        "iso": datetime.fromtimestamp(ts, tz=UTC).isoformat(),
     }
 
 

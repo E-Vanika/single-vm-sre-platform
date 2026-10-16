@@ -39,8 +39,8 @@ resource "oci_core_vcn" "e2_micro_vcn" {
 
   freeform_tags = {
     ManagedBy   = "Terraform"
-    Workload    = "SRE-DevOps-Lab"
-    Environment = "Lab"
+    Workload    = "Single-VM-SRE-Platform"
+    Environment = "Portfolio"
     Tier        = "Always-Free"
   }
 }
@@ -213,7 +213,7 @@ resource "oci_core_subnet" "e2_micro_subnet" {
 resource "oci_core_instance" "e2_micro_vm" {
   compartment_id = var.tenancy_ocid
 
-  display_name = "e2-micro-sre-lab"
+  display_name = "single-vm-sre-platform"
 
   availability_domain = (
     data.oci_identity_availability_domains.e2_micro_ads.availability_domains[0].name
@@ -264,7 +264,7 @@ resource "oci_core_instance" "e2_micro_vm" {
   freeform_tags = {
     ManagedBy   = "Terraform"
     Workload    = "SRE-DevOps-Portfolio"
-    Environment = "Lab"
+    Environment = "Portfolio"
     Shape       = "VM.Standard.E2.1.Micro"
     Tier        = "Always-Free"
     Lifecycle   = "Permanent"

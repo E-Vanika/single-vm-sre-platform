@@ -1,10 +1,10 @@
 ---
-# Bootstraps a fresh Ubuntu 24.04 e2.micro for the SRE demo stack.
+# Bootstraps a fresh Ubuntu 24.04 e2.micro for the SRE platform.
 # Run once after `terraform apply`, before the first CD deploy.
 #
 #   ansible-playbook -i inventory.ini playbook.yml
 
-- name: Bootstrap e2.micro for SRE demo stack
+- name: Bootstrap e2.micro for SRE platform
   hosts: vm
   become: true
 

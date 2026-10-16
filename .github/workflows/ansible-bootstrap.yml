@@ -31,9 +31,13 @@ jobs:
 
       - name: Create app directory + copy runtime files
         run: |
-          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no \
-            docker-compose.yml caddy/Caddyfile \
-            ubuntu@${{ secrets.VM_HOST }}:/opt/solo-sre/
-          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -r \
-            vmagent scripts \
-            ubuntu@${{ secrets.VM_HOST }}:/opt/solo-sre/
+          ssh -i ~/.ssh/id_rsa ubuntu@${{ secrets.VM_HOST }} \
+            "mkdir -p /opt/solo-sre/caddy /opt/solo-sre/vmagent /opt/solo-sre/scripts"
+          scp -i ~/.ssh/id_rsa docker-compose.yml \
+            ubuntu@${{ secrets.VM_HOST }}:/opt/solo-sre/docker-compose.yml
+          scp -i ~/.ssh/id_rsa caddy/Caddyfile \
+            ubuntu@${{ secrets.VM_HOST }}:/opt/solo-sre/caddy/Caddyfile
+          scp -i ~/.ssh/id_rsa vmagent/scrape.yml \
+            ubuntu@${{ secrets.VM_HOST }}:/opt/solo-sre/vmagent/scrape.yml
+          scp -i ~/.ssh/id_rsa scripts/*.sh \
+            ubuntu@${{ secrets.VM_HOST }}:/opt/solo-sre/scripts/

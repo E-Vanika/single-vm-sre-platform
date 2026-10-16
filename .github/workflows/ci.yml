@@ -5,10 +5,22 @@ on:
     branches: [main]
     paths:
       - "app/**"
+      - "caddy/**"
+      - "docker-compose.yml"
+      - "scripts/**"
+      - "vmagent/**"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/cd.yml"
   pull_request:
     branches: [main]
     paths:
       - "app/**"
+      - "caddy/**"
+      - "docker-compose.yml"
+      - "scripts/**"
+      - "vmagent/**"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/cd.yml"
   workflow_dispatch:
 
 permissions:
@@ -19,28 +31,46 @@ permissions:
 jobs:
   test-and-scan:
     runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/requirements.txt
 
-      - name: Install deps
+      - name: Install dependencies
         working-directory: app
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install ruff pytest httpx
 
-      - name: Lint (ruff)
+      - name: Lint
         working-directory: app
         run: ruff check .
 
       - name: Unit tests
         working-directory: app
-        run: pytest || true
+        run: pytest -q
 
-      - name: Trivy filesystem scan (deps)
+      - name: Validate Compose configuration
+        env:
+          GHCR_OWNER: validation
+          IMAGE_TAG: validation
+        run: docker compose config --quiet
+
+      - name: Validate Caddy configuration with the runtime image
+        run: >-
+          docker run --rm
+          -v "${{ github.workspace }}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro"
+          caddy:2-alpine
+          caddy validate --config /etc/caddy/Caddyfile
+
+      - name: Trivy filesystem report
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -48,29 +78,40 @@ jobs:
           format: sarif
           output: trivy-fs.sarif
           severity: HIGH,CRITICAL
+          exit-code: "0"
 
-      - name: Upload Trivy fs results
+      - name: Upload filesystem scan report
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-fs.sarif
 
+      - name: Enforce filesystem vulnerability gate
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: app
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
       - name: SonarQube Cloud scan
+        if: env.SONAR_TOKEN != ''
         uses: SonarSource/sonarqube-scan-action@v5
         env:
           SONAR_HOST_URL: https://sonarcloud.io
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        continue-on-error: true
 
   build-and-push:
     needs: test-and-scan
-    # if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Compute lowercase image name
-        run: echo "IMAGE_NAME=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/cloud-playground" >> "$GITHUB_ENV"
+        shell: bash
+        run: echo "IMAGE_NAME=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/single-vm-sre-platform" >> "$GITHUB_ENV"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -79,13 +120,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build image
-        run: docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} -t ${{ env.IMAGE_NAME }}:latest app
+      - name: Build application images
+        run: |
+          docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} -t ${{ env.IMAGE_NAME }}:latest app
+          docker build -t ${{ env.IMAGE_NAME }}-greeting:${{ github.sha }} -t ${{ env.IMAGE_NAME }}-greeting:latest app/greeting_service
 
-      - name: Build greeting-service image
-        run: docker build -t ${{ env.IMAGE_NAME }}-greeting:${{ github.sha }} -t ${{ env.IMAGE_NAME }}-greeting:latest app/greeting_service
-
-      - name: Trivy image scan
+      - name: Trivy application image report
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
@@ -94,12 +134,30 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "0"
 
-      - name: Upload Trivy image results
+      - name: Upload image scan report
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-image.sarif
 
-      - name: Push images
+      - name: Enforce application image vulnerability gate
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Enforce greeting image vulnerability gate
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}-greeting:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Push immutable and convenience tags
         run: |
           docker push ${{ env.IMAGE_NAME }}:${{ github.sha }}
           docker push ${{ env.IMAGE_NAME }}:latest

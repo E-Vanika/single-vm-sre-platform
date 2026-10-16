@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/${GHCR_OWNER}/cloud-playground:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER}/single-vm-sre-platform:${IMAGE_TAG:-latest}
     container_name: app
     restart: unless-stopped
     mem_limit: 120m
@@ -10,6 +10,12 @@ services:
     networks:
       - internal
     environment:
+      - APP_VERSION=${IMAGE_TAG:-dev}
+      - RATE_LIMIT_PER_MIN=${RATE_LIMIT_PER_MIN:-60}
+      - TRUSTED_PROXY_HOPS=${TRUSTED_PROXY_HOPS:-1}
+      - UPSTREAM_URL=http://greeting-service:8001
+      - UPSTREAM_REQUIRED=${UPSTREAM_REQUIRED:-false}
+      - CHAOS_ENABLED=${CHAOS_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       - OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}
     logging:
@@ -19,7 +25,7 @@ services:
         max-file: "3"
 
   app-2:
-    image: ghcr.io/${GHCR_OWNER}/cloud-playground:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER}/single-vm-sre-platform:${IMAGE_TAG:-latest}
     container_name: app-2
     restart: unless-stopped
     mem_limit: 120m
@@ -29,6 +35,12 @@ services:
     networks:
       - internal
     environment:
+      - APP_VERSION=${IMAGE_TAG:-dev}
+      - RATE_LIMIT_PER_MIN=${RATE_LIMIT_PER_MIN:-60}
+      - TRUSTED_PROXY_HOPS=${TRUSTED_PROXY_HOPS:-1}
+      - UPSTREAM_URL=http://greeting-service:8001
+      - UPSTREAM_REQUIRED=${UPSTREAM_REQUIRED:-false}
+      - CHAOS_ENABLED=${CHAOS_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       - OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}
     logging:
@@ -38,7 +50,7 @@ services:
         max-file: "3"
 
   greeting-service:
-    image: ghcr.io/${GHCR_OWNER}/cloud-playground-greeting:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER}/single-vm-sre-platform-greeting:${IMAGE_TAG:-latest}
     container_name: greeting-service
     restart: unless-stopped
     mem_limit: 60m
