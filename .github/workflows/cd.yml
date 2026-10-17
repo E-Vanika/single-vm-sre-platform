@@ -13,6 +13,7 @@ concurrency:
 
 env:
   NEW_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
+  GHCR_OWNER: ${{ github.repository_owner }}
   BASE_URL: https://solo-sre-pg.duckdns.org
 
 jobs:
@@ -24,12 +25,12 @@ jobs:
       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ env.NEW_TAG }}
 
       - name: Copy versioned runtime configuration
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@917f8b81dfc1ccd331fef9e2d61bdc6c8be94634 # v0.1.7
         with:
           host: ${{ secrets.VM_HOST }}
           username: ubuntu
@@ -38,12 +39,12 @@ jobs:
           target: /opt/solo-sre
 
       - name: Deploy new image to VM
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
         with:
           host: ${{ secrets.VM_HOST }}
           username: ubuntu
           key: ${{ secrets.VM_SSH_KEY }}
-          envs: NEW_TAG
+          envs: NEW_TAG,GHCR_OWNER
           script: |
             set -e
             cd /opt/solo-sre
