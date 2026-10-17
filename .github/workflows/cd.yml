@@ -54,9 +54,25 @@ jobs:
             GHCR_OWNER=$(printf '%s' "$GHCR_OWNER" | tr '[:upper:]' '[:lower:]')
             export GHCR_OWNER
 
+            diagnose() {
+              echo "--- disk usage ---"
+              df -h
+              echo "--- Docker disk usage ---"
+              docker system df
+              echo "--- deployment containers ---"
+              docker compose ps -a
+              echo "--- recent application logs ---"
+              docker compose logs --tail=100 app app-2 greeting-service || true
+            }
+            trap diagnose ERR
+
             CURRENT=$(grep '^IMAGE_TAG=' .env 2>/dev/null | cut -d= -f2 || true)
             CURRENT=${CURRENT:-latest}
             echo "$CURRENT" > .last_good_tag
+
+            # Immutable SHA tags accumulate on this small VM. Keep images used
+            # by running containers and remove only unused images older than a week.
+            docker image prune -af --filter "until=168h"
 
             set_tag() {
               if grep -q '^IMAGE_TAG=' .env 2>/dev/null; then
@@ -66,7 +82,16 @@ jobs:
               fi
             }
             deploy_tag() {
-              docker compose pull app app-2 greeting-service
+              pulled=false
+              for attempt in 1 2 3; do
+                if docker compose pull app app-2 greeting-service; then
+                  pulled=true
+                  break
+                fi
+                echo "Image pull attempt $attempt failed, retrying..."
+                sleep 5
+              done
+              [ "$pulled" = "true" ]
               docker compose up -d --no-deps app app-2 greeting-service
             }
 
