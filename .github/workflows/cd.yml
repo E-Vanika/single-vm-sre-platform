@@ -70,24 +70,35 @@ jobs:
             CURRENT=${CURRENT:-latest}
             echo "$CURRENT" > .last_good_tag
 
-            # Immutable SHA tags accumulate on this small VM. Keep images used
-            # by running containers and remove only unused images older than a week.
-            docker image prune -af --filter "until=168h"
+            # Immutable SHA tags accumulate quickly on the small boot volume.
+            # This preserves running containers, their images, and all volumes.
+            docker system prune -af
 
-            set_tag() {
-              if grep -q '^IMAGE_TAG=' .env 2>/dev/null; then
-                sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$1/" .env
+            set_env() {
+              key=$1
+              value=$2
+              if grep -q "^${key}=" .env 2>/dev/null; then
+                sed -i "s|^${key}=.*|${key}=${value}|" .env
               else
-                echo "IMAGE_TAG=$1" >> .env
+                echo "${key}=${value}" >> .env
               fi
             }
+            set_tag() {
+              set_env IMAGE_TAG "$1"
+            }
+            set_env GHCR_OWNER "$GHCR_OWNER"
+
             deploy_tag() {
               pulled=false
               for attempt in 1 2 3; do
-                if docker compose pull app app-2 greeting-service; then
+                if pull_output=$(docker compose pull app app-2 greeting-service 2>&1); then
+                  echo "$pull_output"
                   pulled=true
                   break
                 fi
+                echo "$pull_output"
+                annotation=$(printf '%s' "$pull_output" | tail -n 5 | tr '\n' ' ' | sed 's/%/%25/g; s/\r/%0D/g')
+                echo "::error title=VM image pull failed::${annotation}"
                 echo "Image pull attempt $attempt failed, retrying..."
                 sleep 5
               done
