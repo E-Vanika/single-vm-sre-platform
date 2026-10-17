@@ -154,7 +154,6 @@ Free-tier infrastructure may occasionally be unavailable.
 - [Deployed version](https://solo-sre-pg.duckdns.org/status)
 - [API documentation](https://solo-sre-pg.duckdns.org/docs)
 - [Grafana dashboard](https://merrycanary2243.grafana.net/d/vak4trs/solo-sre?from=now-1h&to=now&timezone=browser&refresh=30s)
-- [SonarCloud](https://sonarcloud.io/organizations/e-vanika/projects)
 
 ## Roadmap
 

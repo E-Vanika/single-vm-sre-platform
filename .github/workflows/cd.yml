@@ -49,6 +49,11 @@ jobs:
             set -e
             cd /opt/solo-sre
 
+            # GHCR repository paths are always lowercase, while GitHub account
+            # names can contain uppercase characters (for example, E-Vanika).
+            GHCR_OWNER=$(printf '%s' "$GHCR_OWNER" | tr '[:upper:]' '[:lower:]')
+            export GHCR_OWNER
+
             CURRENT=$(grep '^IMAGE_TAG=' .env 2>/dev/null | cut -d= -f2 || true)
             CURRENT=${CURRENT:-latest}
             echo "$CURRENT" > .last_good_tag
