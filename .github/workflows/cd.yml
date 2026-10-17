@@ -73,13 +73,13 @@ jobs:
             | ssh ubuntu@"$VM_HOST" 'gunzip | docker load'
 
       - name: Deploy new image to VM
-        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
-        with:
-          host: ${{ secrets.VM_HOST }}
-          username: ubuntu
-          key: ${{ secrets.VM_SSH_KEY }}
-          envs: NEW_TAG,GHCR_OWNER
-          script: |
+        shell: bash
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+        run: |
+          set -euo pipefail
+          if ! deploy_output=$(ssh ubuntu@"$VM_HOST" \
+            "NEW_TAG='$NEW_TAG' GHCR_OWNER='$GHCR_OWNER' bash -s" 2>&1 <<'REMOTE'
             set -e
             cd /opt/solo-sre
 
@@ -119,6 +119,7 @@ jobs:
             set_env GHCR_OWNER "$GHCR_OWNER"
 
             deploy_tag() {
+              docker rm -f app app-2 greeting-service 2>/dev/null || true
               docker compose up -d --no-deps app app-2 greeting-service
             }
 
@@ -142,6 +143,14 @@ jobs:
               exit 1
             fi
             echo "Deploy of $NEW_TAG passed the internal readiness gate"
+          REMOTE
+          ); then
+            echo "$deploy_output"
+            annotation=$(printf '%s' "$deploy_output" | tail -n 30 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=VM deployment failed::$annotation"
+            exit 1
+          fi
+          echo "$deploy_output"
 
   smoke-test:
     needs: deploy
