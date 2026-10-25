@@ -11,8 +11,13 @@ concurrency:
   group: deploy-production-like
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  packages: read
+
 env:
   NEW_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
+  GHCR_OWNER: ${{ github.repository_owner }}
   BASE_URL: https://solo-sre-pg.duckdns.org
 
 jobs:
@@ -24,12 +29,12 @@ jobs:
       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ env.NEW_TAG }}
 
       - name: Copy versioned runtime configuration
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@917f8b81dfc1ccd331fef9e2d61bdc6c8be94634 # v0.1.7
         with:
           host: ${{ secrets.VM_HOST }}
           username: ubuntu
@@ -37,31 +42,74 @@ jobs:
           source: "docker-compose.yml,caddy/Caddyfile,vmagent/scrape.yml,scripts/rollback.sh,scripts/chaos-test.sh"
           target: /opt/solo-sre
 
+      - name: Configure SSH for deployment
+        shell: bash
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
+
       - name: Deploy new image to VM
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VM_HOST }}
-          username: ubuntu
-          key: ${{ secrets.VM_SSH_KEY }}
-          envs: NEW_TAG
-          script: |
+        shell: bash
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+        run: |
+          set -euo pipefail
+          if ! deploy_output=$(ssh ubuntu@"$VM_HOST" \
+            "NEW_TAG='$NEW_TAG' GHCR_OWNER='$GHCR_OWNER' bash -s" 2>&1 <<'REMOTE'
             set -e
             cd /opt/solo-sre
+
+            # GHCR repository paths are always lowercase, while GitHub account
+            # names can contain uppercase characters (for example, E-Vanika).
+            GHCR_OWNER=$(printf '%s' "$GHCR_OWNER" | tr '[:upper:]' '[:lower:]')
+            export GHCR_OWNER
+
+            diagnose() {
+              echo "--- disk usage ---"
+              df -h
+              echo "--- Docker disk usage ---"
+              docker system df
+              echo "--- deployment containers ---"
+              docker compose ps -a
+              echo "--- recent application logs ---"
+              docker compose logs --tail=100 app app-2 greeting-service || true
+            }
+            trap diagnose ERR
 
             CURRENT=$(grep '^IMAGE_TAG=' .env 2>/dev/null | cut -d= -f2 || true)
             CURRENT=${CURRENT:-latest}
             echo "$CURRENT" > .last_good_tag
 
-            set_tag() {
-              if grep -q '^IMAGE_TAG=' .env 2>/dev/null; then
-                sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$1/" .env
+            set_env() {
+              key=$1
+              value=$2
+              if grep -q "^${key}=" .env 2>/dev/null; then
+                sed -i "s|^${key}=.*|${key}=${value}|" .env
               else
-                echo "IMAGE_TAG=$1" >> .env
+                echo "${key}=${value}" >> .env
               fi
             }
+            set_tag() {
+              set_env IMAGE_TAG "$1"
+            }
+            set_env GHCR_OWNER "$GHCR_OWNER"
+
             deploy_tag() {
-              docker compose pull app app-2 greeting-service
+              docker system prune -af
+              docker compose pull --quiet app app-2 greeting-service
+              docker rm -f app app-2 greeting-service 2>/dev/null || true
               docker compose up -d --no-deps app app-2 greeting-service
+              # Caddy resolves Docker service addresses when its upstreams are
+              # provisioned. Recreate it after replacing replicas so it never
+              # retains the removed containers' bridge-network addresses.
+              docker rm -f caddy 2>/dev/null || true
+              docker compose up -d --no-deps --force-recreate caddy
             }
 
             set_tag "$NEW_TAG"
@@ -79,11 +127,20 @@ jobs:
 
             if [ "$HEALTHY" != "true" ]; then
               echo "Not ready after retries; rolling back to $CURRENT"
+              diagnose
               set_tag "$CURRENT"
               deploy_tag
               exit 1
             fi
             echo "Deploy of $NEW_TAG passed the internal readiness gate"
+          REMOTE
+          ); then
+            echo "$deploy_output"
+            annotation=$(printf '%s' "$deploy_output" | tail -n 120 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=VM deployment failed::$annotation"
+            exit 1
+          fi
+          echo "$deploy_output"
 
   smoke-test:
     needs: deploy
