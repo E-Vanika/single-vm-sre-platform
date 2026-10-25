@@ -41,3 +41,14 @@ def test_hash_endpoint():
     assert r.json()["hash"] == (
         "04d588cb41b8022d1233924f0fe8280d9e2bb92cdc81658eb102ef9c42fc9452"
     )
+
+
+def test_password_token_length_is_bounded():
+    r = client.get("/api/token", params={"kind": "password", "length": 64})
+    assert r.status_code == 200
+    assert len(r.json()["token"]) == 64
+
+    rejected = client.get(
+        "/api/token", params={"kind": "password", "length": 129}
+    )
+    assert rejected.status_code == 422

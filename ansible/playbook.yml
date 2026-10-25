@@ -45,13 +45,13 @@
       file:
         path: /etc/apt/keyrings
         state: directory
-        mode: '0755'
+        mode: '0750'
 
     - name: Download Docker GPG key
       get_url:
         url: https://download.docker.com/linux/ubuntu/gpg
         dest: /etc/apt/keyrings/docker.asc
-        mode: '0644'
+        mode: '0640'
 
     - name: Add Docker apt source (deb822)
       deb822_repository:
@@ -173,7 +173,7 @@
         state: directory
         owner: ubuntu
         group: ubuntu
-        mode: '0755'
+        mode: '0750'
 
     - name: Enable unattended security upgrades
       copy:

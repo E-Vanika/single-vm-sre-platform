@@ -7,3 +7,5 @@ __pycache__/
 *.tfstate
 *.tfstate.backup
 .last_good_tag
+.piptools/
+.verify-venv/
